@@ -583,3 +583,34 @@ body.gbar-hidden .gbar, body.gbar-hidden .gb-pop { display: none; }
   .gb-sep { margin: 0 6px; }
   .gb-btn { width: 32px; }
 }
+
+/* ---------- 앱 설치 안내 ---------- */
+.install-bar {
+  position: fixed; z-index: 25;
+  left: 0; right: 0; margin: 0 auto; width: fit-content; max-width: calc(100vw - 24px);
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 10px 10px 12px;
+  background: #fbf8f3;
+  border: 1px solid #ebe4d8;
+  border-radius: 20px;
+  box-shadow: inset 0 1px 0 #fff, 0 12px 30px rgba(120,95,60,.16);
+}
+.install-bar[hidden] { display: none; }
+.install-bar img { width: 42px; height: 42px; border-radius: 10px; box-shadow: 0 0 0 1px #ebe4d8; flex: none; }
+.ib-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ib-text b { font-size: 15px; font-weight: 500; color: #4b4b49; white-space: nowrap; }
+.ib-text small { font-size: 12px; color: #9a9185; }
+.ib-btn { padding: 9px 16px; border-radius: 12px; background: #5b544b; color: #fff; font-size: 14px; white-space: nowrap; }
+.ib-close { width: 32px; height: 32px; border-radius: 50%; color: #b3a999; font-size: 14px; }
+.install-line { display: block; width: 100%; margin: 4px 0 18px; }
+.install-line[hidden] { display: none; }
+
+#installDialog { width: min(420px, calc(100vw - 32px)); }
+.ig-head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.ig-head img { width: 52px; height: 52px; border-radius: 12px; box-shadow: 0 0 0 1px #ebe4d8; }
+.ig-head .dlg-sub { margin: 2px 0 0; }
+.install-guide ol { margin: 10px 0 16px; padding-left: 22px; display: flex; flex-direction: column; gap: 14px; font-size: 15px; line-height: 1.5; color: #4b4b49; }
+.install-guide li small { display: block; font-size: 12px; color: #9a9185; }
+.ig-icon { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: #f3eee6; color: #2f7cf6; vertical-align: -8px; margin: 0 2px; }
+.ig-icon svg { width: 18px; height: 18px; }

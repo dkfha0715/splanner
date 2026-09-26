@@ -1,6 +1,6 @@
 // Splanner 오프라인 캐시
 // 앱 파일을 바꿔 배포할 때는 VERSION을 올리면 아이패드에 새 버전이 받아진다.
-const VERSION = "splanner-v3";
+const VERSION = "splanner-v4";
 const SHELL = [
   "./",
   "index.html",
@@ -10,6 +10,7 @@ const SHELL = [
   "js/app.js",
   "js/stats.js",
   "js/ink.js",
+  "js/install.js",
   "assets/planner.png",
   "assets/icons/icon-192.png",
   "assets/icons/icon-512.png",

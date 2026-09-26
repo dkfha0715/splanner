@@ -275,6 +275,7 @@
         <label><input type="number" id="goalH" min="0" max="23" inputmode="numeric" /><span>시간</span></label>
         <label><input type="number" id="goalM" min="0" max="59" step="10" inputmode="numeric" /><span>분</span></label>
       </div>
+      <button type="button" class="ghost line install-line" id="installFromSettings">📲 앱으로 설치하기</button>
       <p class="dlg-sub">기록 백업 · 다른 기기로 옮길 때 사용 (손글씨 포함)</p>
       <div class="backup">
         <button type="button" class="ghost line" id="exportBtn">백업 파일 저장</button>
@@ -286,6 +287,21 @@
         <button value="cancel" class="ghost">취소</button>
         <button value="save" class="primary">저장</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- 앱 설치 안내 막대 (설치 안 한 휴대폰 · 태블릿에서만) -->
+  <div class="install-bar" id="installBar" hidden>
+    <img src="assets/icons/icon-192.png" alt="" />
+    <div class="ib-text"><b>Splanner를 앱으로 설치</b><small id="installText">홈 화면에서 전체 화면 앱으로 열려요</small></div>
+    <button class="ib-btn" id="installBtn">설치</button>
+    <button class="ib-close" id="installClose" aria-label="닫기">✕</button>
+  </div>
+  <dialog id="installDialog">
+    <form method="dialog" class="dlg install-guide">
+      <div class="ig-head"><img src="assets/icons/icon-192.png" alt="" /><div><h3>Splanner 설치하기</h3><p class="dlg-sub">홈 화면에 추가하면 앱처럼 열려요</p></div></div>
+      <ol id="installSteps"></ol>
+      <div class="dlg-actions"><span class="spacer"></span><button value="ok" class="primary">알겠어요</button></div>
     </form>
   </dialog>
 
@@ -307,6 +323,7 @@
   <script src="js/app.js"></script>
   <script src="js/stats.js"></script>
   <script src="js/ink.js"></script>
+  <script src="js/install.js"></script>
   <script>
     // 오프라인에서도 열리도록 (배포된 https 사이트에서만. 내 컴퓨터에서 고칠 때는 캐시 없이)
     if ("serviceWorker" in navigator && location.protocol === "https:") {
