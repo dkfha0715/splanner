@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="color-scheme" content="light" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Splanner" />
+  <meta name="theme-color" content="#f4f4f2" />
+  <title>Splanner</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500&family=Noto+Sans+KR:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/stats.css" />
+</head>
+<body>
+  <!-- ============ 플래너: 원본 디자인 이미지를 배경으로 두고 그 위에 입력칸을 겹친다 ============ -->
+  <div class="stage" id="plannerView">
+    <div class="canvas" id="canvas">
+      <img class="paper" src="assets/planner.png" alt="" draggable="false" />
+
+      <!-- 날짜 -->
+      <button class="date-boxes" id="dateBoxes" aria-label="날짜 선택">
+        <span class="grp y" data-len="4"></span>
+        <span class="grp m" data-len="2"></span>
+        <span class="grp d" data-len="2"></span>
+      </button>
+      <input type="date" id="datePicker" class="sr-only" tabindex="-1" />
+
+      <!-- 상단 빈 공간: 이동 · 화면 전환 · 펜 · 설정 -->
+      <div class="toolbar no-ink">
+        <div class="day-nav">
+          <button class="tb-btn" id="prevDay" aria-label="이전 날">‹</button>
+          <button class="tb-btn today" id="todayBtn">TODAY</button>
+          <button class="tb-btn" id="nextDay" aria-label="다음 날">›</button>
+        </div>
+        <div class="view-tabs seg" role="tablist">
+          <button class="on" data-view="planner" role="tab">PLANNER</button>
+          <button data-view="stats" role="tab">STATS</button>
+        </div>
+        <button class="tb-btn gear settings-btn" aria-label="설정">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.4l-5.4 3 1.2-5.9-4.4-4.1 6-.7z"/></svg>
+        </button>
+      </div>
+
+      <!-- D-Day (오른쪽 위 상자) -->
+      <button class="dday" id="ddayBox" aria-label="D-Day 설정">
+        <span class="dday-label" id="ddayLabel">D-DAY</span>
+        <span class="dday-num" id="ddayNum"></span>
+      </button>
+
+      <!-- 요일 -->
+      <nav class="week" id="week"></nav>
+
+      <!-- 모눈 영역 -->
+      <textarea class="goal-note" id="goal" placeholder="오늘의 목표 · 다짐"></textarea>
+
+      <!-- 공부 목록 10줄 -->
+      <ul class="tasks" id="tasks"></ul>
+
+      <!-- 시간표 -->
+      <div class="tt-labels" id="ttLabels" aria-hidden="true"></div>
+      <div class="timetable" id="timetable" aria-label="시간표 (10분 단위)"></div>
+
+      <!-- 기분 · 날씨 (직접 그린 아이콘 위에 버튼만 겹침) -->
+      <div class="picks moods" id="moods"></div>
+      <div class="picks weathers" id="weathers"></div>
+
+      <!-- TOTAL TIME -->
+      <div class="total-v" id="totalTime">0:00:00</div>
+      <div class="goal" id="goalBox" hidden>
+        <div class="goal-bar"><span id="goalFill"></span></div>
+        <div class="goal-txt" id="goalTxt"></div>
+      </div>
+
+      <!-- MEMO -->
+      <textarea class="memo" id="memo" aria-label="메모"></textarea>
+
+      <!-- 사진 · 손글씨 레이어 -->
+      <div class="photos" id="photos"></div>
+      <svg class="ink" id="ink" viewBox="0 0 1754 1240" aria-hidden="true"></svg>
+    </div>
+  </div>
+
+  <!-- ============ 도구 막대 (굿노트식, 끌어서 옮기기) ============ -->
+  <div class="gbar" id="gbar" role="toolbar" aria-label="그리기 도구">
+    <button class="gb-grip" id="gbGrip" aria-label="도구 막대 옮기기" title="끌어서 옮기기">
+      <svg viewBox="0 0 10 22"><rect x="1" y="3" width="8" height="2.4" rx="1.2"/><rect x="1" y="9.8" width="8" height="2.4" rx="1.2"/><rect x="1" y="16.6" width="8" height="2.4" rx="1.2"/></svg>
+    </button>
+    <div class="gb-group">
+      <button class="gb-tool" data-tool="pen" aria-label="펜" title="펜">
+        <svg viewBox="0 0 24 36"><path class="t-body" d="M8 14h8v17.5a2.5 2.5 0 0 1-2.5 2.5h-3A2.5 2.5 0 0 1 8 31.5z"/><path class="t-cone" d="M8 14l4-9.5 4 9.5z"/><path class="t-tip" d="M10.4 8.3L12 4.5l1.6 3.8z"/><rect class="t-band" x="8" y="18.5" width="8" height="2.2"/></svg>
+      </button>
+      <button class="gb-tool" data-tool="hl" aria-label="형광펜" title="형광펜">
+        <svg viewBox="0 0 24 36"><path class="t-body" d="M6.5 15.5h11v16.5a2.5 2.5 0 0 1-2.5 2.5H9A2.5 2.5 0 0 1 6.5 32z"/><path class="t-cone" d="M8 15.5v-4h8v4z"/><path class="t-tip" d="M9 11.5V6.8l6-2.3v7z"/><rect class="t-band" x="6.5" y="19.5" width="11" height="2.2"/></svg>
+      </button>
+      <button class="gb-tool" data-tool="eraser" aria-label="지우개" title="지우개">
+        <svg viewBox="0 0 24 36"><rect class="t-body" x="7" y="13" width="10" height="21.5" rx="2.5"/><path class="t-rub" d="M7 13.2V8.6A3.6 3.6 0 0 1 10.6 5h2.8A3.6 3.6 0 0 1 17 8.6v4.6z"/><rect class="t-band" x="7" y="12.2" width="10" height="2.4"/></svg>
+      </button>
+    </div>
+    <span class="gb-sep"></span>
+    <div class="gb-colors" id="gbColors"></div>
+    <button class="gb-pal" id="gbPalBtn" aria-label="색 더 보기" title="색 더 보기"></button>
+    <span class="gb-sep"></span>
+    <button class="gb-sizechip gb-po" id="gbSizeChip" aria-label="굵기" title="굵기 · 좌우로 끌거나 눌러서 조절">
+      <span class="gb-line"><i id="gbSizeLine"></i></span>
+      <output id="gbSizeVal">5</output>
+    </button>
+    <span class="gb-sep gb-po"></span>
+    <button class="gb-btn gb-po" id="inkUndo" aria-label="되돌리기" title="되돌리기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7L4.5 11.5 9 16"/><path d="M5 11.5h9.5a5 5 0 0 1 0 10H12"/></svg>
+    </button>
+    <button class="gb-btn gb-po" id="inkRedo" aria-label="다시하기" title="다시하기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l4.5 4.5L15 16"/><path d="M19 11.5H9.5a5 5 0 0 0 0 10H12"/></svg>
+    </button>
+    <span class="gb-sep gb-po"></span>
+    <button class="gb-btn gb-po" id="gbPhoto" aria-label="사진 추가" title="사진 추가">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M4 17l5-4.5 3.5 3 3-2.5L20 17"/></svg>
+    </button>
+    <input type="file" id="photoFile" accept="image/*" hidden />
+    <button class="gb-btn gb-po" id="gbFinger" aria-label="손가락으로 그리기" title="손가락 · 마우스로도 그리기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V4.5a1.5 1.5 0 0 1 3 0V10m0-.5V8a1.5 1.5 0 0 1 3 0v2m0-.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-.5a6 6 0 0 1-4.6-2.2L3.3 15.4a1.5 1.5 0 0 1 2.2-2L9 16"/></svg>
+    </button>
+    <button class="gb-btn gb-po" id="inkClear" aria-label="이 날 손글씨 · 사진 모두 지우기" title="이 날 손글씨 · 사진 모두 지우기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12.5a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5L18.5 7M9 7V4.5h6V7"/></svg>
+    </button>
+    <span class="gb-sep gb-po"></span>
+    <button class="gb-btn" id="gbHide" aria-label="도구 막대 숨기기" title="막대 숨기기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14.5l5-5 5 5"/></svg>
+    </button>
+  </div>
+  <!-- 숨긴 도구 막대 다시 꺼내기 -->
+  <button class="gb-show" id="gbShow" aria-label="도구 막대 보이기" title="도구 막대 보이기" hidden>
+    <svg viewBox="0 0 24 36"><path class="t-body" d="M8 14h8v17.5a2.5 2.5 0 0 1-2.5 2.5h-3A2.5 2.5 0 0 1 8 31.5z"/><path class="t-cone" d="M8 14l4-9.5 4 9.5z"/><path class="t-tip" d="M10.4 8.3L12 4.5l1.6 3.8z"/></svg>
+  </button>
+
+  <!-- 도구 막대 팝업: 색 · 굵기 -->
+  <div class="gb-pop" id="gbPalPop" hidden>
+    <div class="gp-title">COLOR</div>
+    <div class="gp-grid" id="gbPalGrid"></div>
+    <label class="gp-custom">
+      <span class="gp-custom-dot" id="gbCustomDot"></span>
+      <span>직접 고르기</span>
+      <input type="color" id="gbCustom" />
+    </label>
+  </div>
+  <div class="gb-pop" id="gbSizePop" hidden>
+    <div class="gp-title">SIZE <output id="gbSizeVal2" class="gp-num">5</output></div>
+    <svg class="gp-preview" viewBox="0 0 220 44" aria-hidden="true"><path id="gbPreview" d="M14 30 C 60 6, 100 40, 140 20 S 196 14, 206 22" fill="none" stroke-linecap="round"/></svg>
+    <input type="range" id="gbSize" min="1" max="30" step="1" aria-label="굵기" />
+  </div>
+
+  <!-- ============ 통계: 플래너와 같은 가로 한 장 ============ -->
+  <div class="stage" id="statsView" hidden>
+    <div class="canvas st-canvas" id="stCanvas">
+      <div class="st-stars" aria-hidden="true"></div>
+
+      <div class="st-nav">
+        <button class="tb-btn" id="stPrev" aria-label="이전">‹</button>
+        <span class="st-label" id="periodLabel"></span>
+        <button class="tb-btn" id="stNext" aria-label="다음">›</button>
+        <button class="tb-btn today" id="stNow">이번 주</button>
+      </div>
+
+      <div class="toolbar st-toolbar">
+        <div class="seg" id="periodTabs" role="tablist">
+          <button class="on" data-p="week" role="tab">WEEK</button>
+          <button data-p="month" role="tab">MONTH</button>
+          <button data-p="year" role="tab">YEAR</button>
+        </div>
+        <div class="view-tabs seg" role="tablist">
+          <button data-view="planner" role="tab">PLANNER</button>
+          <button class="on" data-view="stats" role="tab">STATS</button>
+        </div>
+        <button class="tb-btn gear settings-btn" aria-label="설정">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M12 3.2l2.6 5.5 6 .7-4.4 4.1 1.2 5.9L12 16.4l-5.4 3 1.2-5.9-4.4-4.1 6-.7z"/></svg>
+        </button>
+      </div>
+
+      <div class="st-box" id="stDday">
+        <span class="dday-label" id="stDdayLabel">D-DAY</span>
+        <span class="dday-num" id="stDdayNum"></span>
+      </div>
+
+      <section class="tiles" id="tiles"></section>
+
+      <section class="card c-bars">
+        <div class="card-h">
+          <h3>STUDY TIME</h3>
+          <span class="card-sub" id="barSub"></span>
+        </div>
+        <div class="legend" id="barLegend"></div>
+        <div class="bars" id="barChart"></div>
+      </section>
+
+      <section class="card c-heat" id="heatCard">
+        <div class="card-h">
+          <h3 id="heatTitle">CALENDAR</h3>
+          <span class="heat-legend" id="heatLegend"></span>
+        </div>
+        <div id="heatmap"></div>
+      </section>
+
+      <section class="card c-subj">
+        <div class="card-h">
+          <h3>SUBJECTS</h3>
+          <span class="card-sub" id="subjSub"></span>
+        </div>
+        <div class="strip" id="subjStrip"></div>
+        <div class="subj-list" id="subjList"></div>
+      </section>
+
+      <section class="card c-hours">
+        <div class="card-h">
+          <h3>FOCUS HOURS</h3>
+          <span class="card-sub" id="hourSub"></span>
+        </div>
+        <div class="hours" id="hourChart"></div>
+        <p class="note">타이머 기록 기준 · 직접 수정한 시간은 제외</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+
+  <div class="banner" id="activeBanner" hidden>
+    <span class="dot"></span>
+    <span id="bannerText"></span>
+    <button id="bannerGo">보러가기</button>
+  </div>
+
+  <dialog id="timeDialog">
+    <form method="dialog" class="dlg">
+      <h3>공부 시간 수정</h3>
+      <p class="dlg-sub" id="timeDialogSub"></p>
+      <div class="hms">
+        <label><input type="number" id="editH" min="0" max="23" inputmode="numeric" /><span>시간</span></label>
+        <label><input type="number" id="editM" min="0" max="59" inputmode="numeric" /><span>분</span></label>
+        <label><input type="number" id="editS" min="0" max="59" inputmode="numeric" /><span>초</span></label>
+      </div>
+      <div class="dlg-actions">
+        <button value="reset" class="ghost">초기화</button>
+        <span class="spacer"></span>
+        <button value="cancel" class="ghost">취소</button>
+        <button value="save" class="primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="ddayDialog">
+    <form method="dialog" class="dlg">
+      <h3>D-Day 설정</h3>
+      <label class="field"><span>이름</span><input type="text" id="ddayName" placeholder="예) 기말고사" maxlength="12" /></label>
+      <label class="field"><span>날짜</span><input type="date" id="ddayDate" /></label>
+      <div class="dlg-actions">
+        <button value="clear" class="ghost">삭제</button>
+        <span class="spacer"></span>
+        <button value="cancel" class="ghost">취소</button>
+        <button value="save" class="primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="dlg">
+      <h3>설정</h3>
+      <p class="dlg-sub">하루 목표 공부 시간 (0으로 두면 사용 안 함)</p>
+      <div class="hms">
+        <label><input type="number" id="goalH" min="0" max="23" inputmode="numeric" /><span>시간</span></label>
+        <label><input type="number" id="goalM" min="0" max="59" step="10" inputmode="numeric" /><span>분</span></label>
+      </div>
+      <p class="dlg-sub">기록 백업 · 다른 기기로 옮길 때 사용 (손글씨 포함)</p>
+      <div class="backup">
+        <button type="button" class="ghost line" id="exportBtn">백업 파일 저장</button>
+        <button type="button" class="ghost line" id="importBtn">백업 불러오기</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden />
+      </div>
+      <div class="dlg-actions">
+        <span class="spacer"></span>
+        <button value="cancel" class="ghost">취소</button>
+        <button value="save" class="primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 확인 창 (브라우저 기본 confirm이 막히는 환경이 있어 앱 안에서 띄움) -->
+  <dialog id="askDialog">
+    <form method="dialog" class="dlg">
+      <h3 id="askTitle">확인</h3>
+      <p class="dlg-sub" id="askText"></p>
+      <div class="dlg-actions">
+        <span class="spacer"></span>
+        <button value="cancel" class="ghost">취소</button>
+        <button value="ok" class="primary" id="askOk">확인</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="js/app.js"></script>
+  <script src="js/stats.js"></script>
+  <script src="js/ink.js"></script>
+  <script>
+    // 오프라인에서도 열리도록 (배포된 https 사이트에서만. 내 컴퓨터에서 고칠 때는 캐시 없이)
+    if ("serviceWorker" in navigator && location.protocol === "https:") {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  </script>
+</body>
+</html>

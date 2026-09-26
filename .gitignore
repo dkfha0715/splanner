@@ -1,0 +1,12 @@
+# 개발 도구 설정 (앱에 필요 없음)
+.bkit/
+.claude/
+
+# 원본 디자인 이미지 (앱은 assets/planner.png 사용)
+무제*.png
+
+# 새 아이콘 원본을 여기에 두면 올라가지 않음
+icon-source/
+
+Thumbs.db
+.DS_Store
