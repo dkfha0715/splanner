@@ -500,7 +500,7 @@ body.gbar-hidden .gbar, body.gbar-hidden .gb-pop { display: none; }
 .gb-btn svg { width: 21px; height: 21px; stroke-width: 1.5; }
 .gb-btn:hover { color: var(--gb-ink); }
 .gb-btn:active { background: #f1ebe1; }
-#gbFinger.on { color: var(--gb-ink); }
+#gbFinger.on, #gbScribble.on { color: var(--gb-ink); background: #f1ebe1; }
 /* 할 일이 없을 때(지울 손글씨가 없는 등)만 흐리게 */
 .gb-btn:disabled { opacity: .3; pointer-events: none; }
 .gb-sep { width: 1px; height: 20px; background: var(--gb-line); margin: 0 9px; flex: none; border-radius: 1px; }

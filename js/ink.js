@@ -30,6 +30,7 @@
     size: { pen: 5, hl: 22, eraser: 24 },
     custom: "#e8c9a8",
     finger: false,
+    scribble: false, // 펜슬 글자 입력(Scribble). 꺼져 있으면 입력칸 위에서도 펜슬은 그리기만
     dock: "top", x: null, y: null,
   };
   try {
@@ -263,11 +264,31 @@
   }
 
   // ---------- 입력 ----------
+  const isField = (el) => el && el.matches && el.matches("#canvas input[type='text'], #canvas textarea");
   function wantsPointer(e) {
     if (e.target.closest && e.target.closest(".no-ink, dialog, .photo.sel")) return false;
+    // 펜슬 글자 입력을 켠 상태에서는 입력칸 위의 펜슬을 아이패드(Scribble)에 넘긴다
+    if (pref.scribble && e.pointerType === "pen" && isField(e.target)) return false;
     if (e.pointerType === "pen") return true;
     return pref.finger;
   }
+
+  // ---------- 펜슬 글자 입력(Scribble) 끄기 ----------
+  // Scribble은 편집 가능한 칸에서만 켜지므로, 입력칸을 평소엔 '읽기 전용'으로 잠가 두고
+  // 손가락 · 마우스로 누를 때만 풀어 키보드 입력을 받는다. 칸을 벗어나면 다시 잠근다.
+  function lockFields() {
+    canvas.querySelectorAll("input[type='text'], textarea").forEach((el) => {
+      if (document.activeElement !== el) el.readOnly = !pref.scribble;
+    });
+  }
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "pen" && isField(e.target) && !pref.finger) e.target.readOnly = false;
+  }, true);
+  // 엔터로 다음 칸에 넘어가는 등 키보드로 들어온 경우에도 입력되도록
+  canvas.addEventListener("focusin", (e) => { if (isField(e.target)) e.target.readOnly = false; });
+  canvas.addEventListener("focusout", (e) => { if (isField(e.target) && !pref.scribble) e.target.readOnly = true; });
+  // 공부 목록은 날짜를 바꿀 때마다 새로 그려지므로 새 칸도 잠근다
+  new MutationObserver(lockFields).observe($("tasks"), { childList: true });
   function toCanvas(e) {
     const r = canvas.getBoundingClientRect();
     const s = r.width / W;
@@ -282,6 +303,7 @@
     e.stopPropagation();
     selectPhoto(null);
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    lockFields(); // 펜슬이 닿으면 입력칸을 다시 잠가 글자 변환이 끼어들지 않게
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 캡처 불가 환경 */ }
     const [x, y] = toCanvas(e);
     if (pref.tool === "eraser") {
@@ -363,9 +385,13 @@
   // 아이패드 Scribble(손글씨 → 글자 변환)이 입력칸에서 끼어들지 않게
   canvas.addEventListener("touchstart", (e) => {
     const stylus = [...e.changedTouches].some((t) => t.touchType === "stylus");
+    if (stylus && pref.scribble && isField(e.target)) return; // 펜슬 글자 입력 켜짐: 아이패드에 맡김
     if (stylus || (pref.finger && !e.target.closest(".no-ink, .photo.sel"))) e.preventDefault();
   }, { passive: false, capture: true });
-  canvas.addEventListener("touchmove", (e) => { if (active) e.preventDefault(); }, { passive: false, capture: true });
+  canvas.addEventListener("touchmove", (e) => {
+    const stylus = [...e.changedTouches].some((t) => t.touchType === "stylus");
+    if (active || (stylus && !pref.scribble)) e.preventDefault();
+  }, { passive: false, capture: true });
 
   // ---------- 부분 지우개 ----------
   // 지우개가 지나간 선분 근처의 점을 빼고, 남은 부분을 여러 획으로 나눈다
@@ -546,6 +572,9 @@
     sizeLook(pref.size[pref.tool]);
     $("gbFinger").classList.toggle("on", !!pref.finger);
     $("gbFinger").setAttribute("aria-pressed", !!pref.finger);
+    $("gbScribble").classList.toggle("on", !!pref.scribble);
+    $("gbScribble").setAttribute("aria-pressed", !!pref.scribble);
+    lockFields();
     updateButtons();
   }
   function updateButtons() {
@@ -634,6 +663,10 @@
     const f = e.target.files[0];
     e.target.value = "";
     if (f) addPhoto(f);
+  });
+  $("gbScribble").addEventListener("click", () => {
+    pref.scribble = !pref.scribble; savePref(); renderBar();
+    P.toast(pref.scribble ? "펜슬 글자 입력 켜짐 · 입력칸에 펜슬로 쓰면 글자로 바뀌어요" : "펜슬 글자 입력 꺼짐 · 펜슬은 어디서나 그리기만 해요");
   });
   $("gbFinger").addEventListener("click", () => {
     pref.finger = !pref.finger; savePref(); renderBar();
