@@ -144,9 +144,15 @@
 
   // ---------- 모양 다듬기 (꾹 누르기) ----------
   function recognize(p) {
-    const pts = [];
-    for (let i = 0; i < p.length; i += 3) pts.push([p[i], p[i + 1]]);
-    if (pts.length < 4) return null;
+    const raw = [];
+    for (let i = 0; i < p.length; i += 3) raw.push([p[i], p[i + 1]]);
+    if (raw.length < 4) return null;
+    // 끝에서 꾹 누르고 있는 동안 손 떨림으로 생긴 점들은 빼고 판단한다
+    const last = raw[raw.length - 1];
+    let k = raw.length - 1;
+    while (k > 1 && Math.hypot(raw[k - 1][0] - last[0], raw[k - 1][1] - last[1]) < 8) k--;
+    const pts = raw.slice(0, k).concat([last]);
+    if (pts.length < 2) return null;
     let len = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     pts.forEach(([x, y], i) => {
       if (i) len += Math.hypot(x - pts[i - 1][0], y - pts[i - 1][1]);
@@ -157,8 +163,12 @@
     const [sx, sy] = pts[0], [ex, ey] = pts[pts.length - 1];
     const gap = Math.hypot(ex - sx, ey - sy);
 
-    // 직선
-    if (gap / len > 0.88) return { kind: "line", pts: [[sx, sy], [ex, ey]] };
+    // 직선: 시작점-끝점을 잇는 선에서 가장 멀리 벗어난 거리가 작으면 (손으로 그은 약간 삐뚤한 선도 OK)
+    if (gap > 20) {
+      const dx = ex - sx, dy = ey - sy;
+      const maxDev = pts.reduce((m, [x, y]) => Math.max(m, Math.abs(dy * (x - sx) - dx * (y - sy)) / gap), 0);
+      if (maxDev <= Math.max(9, gap * 0.1) && len < gap * 1.35) return { kind: "line", pts: [[sx, sy], [ex, ey]] };
+    }
 
     // 닫힌 모양 → 원 / 타원 (주성분으로 기울기까지 맞춤)
     if (gap < diag * 0.3 && len > diag * 1.8) {
