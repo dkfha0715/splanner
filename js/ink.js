@@ -16,7 +16,8 @@
   const PASTELS = ["#f6e7a6", "#f5cfc9", "#f8d9b5", "#cfe7d3", "#cbe0ec", "#dbd3ee", "#f0d3e2"];
   const COLORS = [...GRAYS, ...PASTELS];
   const SIZE_RANGE = { pen: [1, 30], hl: [6, 60], eraser: [6, 90] };
-  const HOLD_MS = 550;
+  const HOLD_MS = 500;   // 이만큼 멈춰 있으면 모양 다듬기
+  const STILL_R = 10;    // 이 반경(캔버스 px) 안의 떨림은 멈춘 것으로
   const PREF_KEY = "shplanner.tools";
 
   const svg = $("ink");
@@ -142,7 +143,205 @@
     return out;
   }
 
-  // ---------- 모양 다듬기 (꾹 누르기) ----------
+  // ---------- 모양 다듬기 (그리다가 떼지 않고 꾹 누르기) ----------
+  // 직선 · 꺾은선 · 원 · 타원 · 세모 · 네모(정사각형 · 직사각형) · 오각형 · 육각형 · 별 …
+  // 그린 모양과 가장 비슷한 반듯한 도형으로 바꾼다.
+  const D = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  function segDist(p, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+    return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+  }
+  // 꼭짓점 뽑기 (Ramer–Douglas–Peucker)
+  function rdp(pts, eps) {
+    const keep = new Array(pts.length).fill(false);
+    keep[0] = keep[pts.length - 1] = true;
+    const stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      const [s, e] = stack.pop();
+      let idx = -1, max = 0;
+      for (let i = s + 1; i < e; i++) { const d = segDist(pts[i], pts[s], pts[e]); if (d > max) { max = d; idx = i; } }
+      if (max > eps && idx > 0) { keep[idx] = true; stack.push([s, idx], [idx, e]); }
+    }
+    return pts.filter((_, i) => keep[i]);
+  }
+  // 꼭짓점에서 두 변이 이루는 각 (도). 180에 가까우면 거의 일직선
+  function cornerAngle(prev, v, next) {
+    const a = [prev[0] - v[0], prev[1] - v[1]], b = [next[0] - v[0], next[1] - v[1]];
+    const c = (a[0] * b[0] + a[1] * b[1]) / ((Math.hypot(...a) * Math.hypot(...b)) || 1);
+    return (Math.acos(Math.max(-1, Math.min(1, c))) * 180) / Math.PI;
+  }
+  // 거의 일직선인 꼭짓점 · 너무 가까운 꼭짓점 정리
+  function cleanVerts(V, closed, minEdge) {
+    let changed = true;
+    while (changed && V.length > (closed ? 3 : 2)) {
+      changed = false;
+      const n = V.length;
+      for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
+        const prev = V[(i - 1 + n) % n], next = V[(i + 1) % n];
+        if (cornerAngle(prev, V[i], next) > 148 || D(V[i], next) < minEdge && (closed || i < n - 2)) {
+          V = V.filter((_, j) => j !== i); changed = true; break;
+        }
+      }
+    }
+    return V;
+  }
+  // 진짜 모서리인지: 꼭짓점 앞뒤 아주 짧은 구간(w)에서 방향이 확 꺾였으면 모서리, 서서히 휘었으면 곡선
+  function isRealCorner(pts, idx, w, closed, vertexTurn, need = 0.45) {
+    const n = pts.length;
+    const walk = (dir) => {
+      let d = 0, i = idx;
+      for (let step = 0; step < n; step++) {
+        const j = i + dir;
+        if (!closed && (j < 0 || j >= n)) return pts[i];
+        const jj = (j + n) % n;
+        d += D(pts[i], pts[jj]);
+        i = jj;
+        if (d >= w) return pts[i];
+      }
+      return pts[i];
+    };
+    const a = walk(-1), b = walk(1), v = pts[idx];
+    const localTurn = 180 - cornerAngle(a, v, b);
+    return vertexTurn > 25 && localTurn >= vertexTurn * need;
+  }
+  // 꼭짓점의 3/4 이상이 뚜렷한 모서리면 다각형으로 본다 (원을 여러 각으로 잘못 보지 않게)
+  function allCorners(pts, V, closed, w) {
+    const n = V.length;
+    let total = 0, sharp = 0;
+    for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
+      const turn = 180 - cornerAngle(V[(i - 1 + n) % n], V[i], V[(i + 1) % n]);
+      total++;
+      if (isRealCorner(pts, pts.indexOf(V[i]), w, closed, turn, closed ? 0.45 : 0.6)) sharp++;
+    }
+    return total > 0 && sharp / total >= (closed ? 0.75 : 1);
+  }
+  // 그린 점들이 다각형 변에서 평균 얼마나 떨어졌는지 (평균 변 길이 대비)
+  function edgeError(pts, V, closed) {
+    const edges = [];
+    for (let i = 0; i < V.length - (closed ? 0 : 1); i++) edges.push([V[i], V[(i + 1) % V.length]]);
+    const avgEdge = edges.reduce((a, [p, q]) => a + D(p, q), 0) / edges.length;
+    const mean = pts.reduce((a, p) => a + Math.min(...edges.map(([q, r]) => segDist(p, q, r))), 0) / pts.length;
+    return mean / (avgEdge || 1);
+  }
+  function fitEllipse(pts) {
+    const n = pts.length;
+    const mx = pts.reduce((a, q) => a + q[0], 0) / n, my = pts.reduce((a, q) => a + q[1], 0) / n;
+    let sxx = 0, syy = 0, sxy = 0;
+    pts.forEach(([x, y]) => { sxx += (x - mx) ** 2; syy += (y - my) ** 2; sxy += (x - mx) * (y - my); });
+    const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    const c = Math.cos(th), s = Math.sin(th);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    pts.forEach(([x, y]) => {
+      const u = (x - mx) * c + (y - my) * s, v = -(x - mx) * s + (y - my) * c;
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    });
+    const a = (u1 - u0) / 2 || 1, b = (v1 - v0) / 2 || 1;
+    const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+    const cx = mx + cu * c - cv * s, cy = my + cu * s + cv * c;
+    const err = pts.reduce((acc, [x, y]) => {
+      const u = (x - cx) * c + (y - cy) * s, v = -(x - cx) * s + (y - cy) * c;
+      return acc + Math.abs(Math.hypot(u / a, v / b) - 1);
+    }, 0) / n;
+    return { cx, cy, a, b, th, err };
+  }
+  function ellipsePoints(e, from) {
+    let { a, b, th: rot } = e;
+    if (Math.min(a, b) / Math.max(a, b) > 0.82) { a = b = (a + b) / 2; rot = 0; }
+    const per = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+    const steps = Math.max(64, Math.round(per / 3));
+    const start = Math.atan2(-(from[0] - e.cx) * Math.sin(rot) + (from[1] - e.cy) * Math.cos(rot),
+                             (from[0] - e.cx) * Math.cos(rot) + (from[1] - e.cy) * Math.sin(rot));
+    const out = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = start + (i / steps) * Math.PI * 2, u = a * Math.cos(t), v = b * Math.sin(t);
+      out.push([e.cx + u * Math.cos(rot) - v * Math.sin(rot), e.cy + u * Math.sin(rot) + v * Math.cos(rot)]);
+    }
+    return out;
+  }
+  const centroid = (P) => [P.reduce((a, p) => a + p[0], 0) / P.length, P.reduce((a, p) => a + p[1], 0) / P.length];
+  // 위쪽(12시)에 가장 가까운 방향을 회전 기준으로
+  function topAngle(C, candidates) {
+    let best = null, bestD = Infinity;
+    for (const p of candidates) {
+      const ang = Math.atan2(p[1] - C[1], p[0] - C[0]);
+      const d = Math.abs(Math.atan2(Math.sin(ang + Math.PI / 2), Math.cos(ang + Math.PI / 2)));
+      if (d < bestD) { bestD = d; best = ang; }
+    }
+    return best;
+  }
+  function regularPolygon(C, R, n, start) {
+    return Array.from({ length: n }, (_, i) => [C[0] + R * Math.cos(start + (i * 2 * Math.PI) / n), C[1] + R * Math.sin(start + (i * 2 * Math.PI) / n)]);
+  }
+
+  // 별: 중심에서의 거리가 길어졌다 짧아졌다를 5번 이상 되풀이하면
+  function detectStar(pts) {
+    const C = centroid(pts);
+    const r = pts.map((p) => D(p, C));
+    const n = r.length, w = Math.max(1, Math.round(n / 60));
+    const sm = r.map((_, i) => { let s = 0; for (let k = -w; k <= w; k++) s += r[(i + k + n) % n]; return s / (2 * w + 1); });
+    const maxR = Math.max(...sm), minR = Math.min(...sm);
+    if (minR / maxR > 0.65) return null;
+    const thr = minR + (maxR - minR) * 0.55;
+    // 문턱보다 바깥에 있는 구간(뿔)을 센다
+    const runs = [];
+    let start = sm.findIndex((v) => v < thr);
+    if (start < 0) return null;
+    let cur = null;
+    for (let k = 1; k <= n; k++) {
+      const i = (start + k) % n;
+      if (sm[i] >= thr) { if (!cur) cur = { best: i }; else if (sm[i] > sm[cur.best]) cur.best = i; }
+      else if (cur) { runs.push(cur); cur = null; }
+    }
+    if (cur) runs.push(cur);
+    const m = runs.length;
+    if (m < 5 || m > 8) return null;
+    const tips = runs.map((q) => pts[q.best]);
+    const outer = tips.reduce((a, p) => a + D(p, C), 0) / m;
+    const ratio = Math.max(0.34, Math.min(0.6, minR / maxR * 1.05));
+    const start0 = topAngle(C, tips);
+    const out = [];
+    for (let i = 0; i < 2 * m; i++) {
+      const R = i % 2 ? outer * ratio : outer;
+      const ang = start0 + (i * Math.PI) / m;
+      out.push([C[0] + R * Math.cos(ang), C[1] + R * Math.sin(ang)]);
+    }
+    return { kind: "star", pts: out.concat([out[0]]) };
+  }
+
+  // 닫힌 다각형을 가장 가까운 반듯한 도형으로
+  function regularize(V) {
+    const n = V.length, C = centroid(V);
+    const sides = V.map((p, i) => D(p, V[(i + 1) % n]));
+    const angles = V.map((p, i) => cornerAngle(V[(i - 1 + n) % n], p, V[(i + 1) % n]));
+    const sideSpread = Math.max(...sides) / Math.min(...sides);
+    const close = (P) => P.concat([P[0]]);
+
+    if (n === 4 && angles.every((a) => Math.abs(a - 90) < 18)) {
+      // 직사각형 · 정사각형: 변 방향의 평균(90도 주기)으로 기울기를 정하고, 거의 수평이면 반듯하게
+      let sx = 0, sy = 0;
+      V.forEach((p, i) => { const q = V[(i + 1) % n]; const a4 = 4 * Math.atan2(q[1] - p[1], q[0] - p[0]); sx += Math.cos(a4); sy += Math.sin(a4); });
+      let th = Math.atan2(sy, sx) / 4;
+      if (Math.abs(th) < (8 * Math.PI) / 180) th = 0;
+      const c = Math.cos(th), s = Math.sin(th);
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      V.forEach(([x, y]) => { const u = x * c + y * s, v = -x * s + y * c; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); });
+      // 네 꼭짓점의 평균 위치로 (바깥 극값보다 손 모양에 가깝게)
+      let hw = (u1 - u0) / 2, hh = (v1 - v0) / 2;
+      const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+      if (Math.abs(hw - hh) / Math.max(hw, hh) < 0.12) hw = hh = (hw + hh) / 2; // 정사각형
+      const rect = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([u, v]) => [(cu + u) * c - (cv + v) * s, (cu + u) * s + (cv + v) * c]);
+      return { kind: hw === hh ? "square" : "rectangle", pts: close(rect) };
+    }
+    const tol = n === 3 ? 18 : 22, spread = n === 3 ? 1.25 : 1.4;
+    if (n >= 3 && n <= 8 && sideSpread < spread && angles.every((a) => Math.abs(a - (180 * (n - 2)) / n) < tol)) {
+      // 정삼각형 · 정사각형(마름모) · 정오각형 · 정육각형 …
+      const R = V.reduce((a, p) => a + D(p, C), 0) / n;
+      return { kind: "regular" + n, pts: close(regularPolygon(C, R, n, topAngle(C, V))) };
+    }
+    return { kind: "polygon" + n, pts: close(V) }; // 모양은 그대로, 변만 곧게
+  }
+
   function recognize(p) {
     const raw = [];
     for (let i = 0; i < p.length; i += 3) raw.push([p[i], p[i + 1]]);
@@ -150,61 +349,57 @@
     // 끝에서 꾹 누르고 있는 동안 손 떨림으로 생긴 점들은 빼고 판단한다
     const last = raw[raw.length - 1];
     let k = raw.length - 1;
-    while (k > 1 && Math.hypot(raw[k - 1][0] - last[0], raw[k - 1][1] - last[1]) < 8) k--;
-    const pts = raw.slice(0, k).concat([last]);
-    if (pts.length < 2) return null;
+    while (k > 1 && D(raw[k - 1], last) < 10) k--;
+    const trimmed = raw.slice(0, k).concat([last]);
+    if (trimmed.length < 2) return null;
+    // 잔떨림을 살짝 걸러낸 선으로 판단 (앞뒤 2점 평균, 양 끝은 그대로)
+    const pts = trimmed.map((q, i) => {
+      if (i < 2 || i > trimmed.length - 3) return q;
+      let sx = 0, sy = 0;
+      for (let j = i - 2; j <= i + 2; j++) { sx += trimmed[j][0]; sy += trimmed[j][1]; }
+      return [sx / 5, sy / 5];
+    });
     let len = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     pts.forEach(([x, y], i) => {
-      if (i) len += Math.hypot(x - pts[i - 1][0], y - pts[i - 1][1]);
+      if (i) len += D(pts[i], pts[i - 1]);
       minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     });
     const diag = Math.hypot(maxX - minX, maxY - minY);
     if (diag < 12) return null;
-    const [sx, sy] = pts[0], [ex, ey] = pts[pts.length - 1];
-    const gap = Math.hypot(ex - sx, ey - sy);
+    const first = pts[0], end = pts[pts.length - 1];
+    const gap = D(first, end);
 
-    // 직선: 시작점-끝점을 잇는 선에서 가장 멀리 벗어난 거리가 작으면 (손으로 그은 약간 삐뚤한 선도 OK)
+    // 1) 직선: 시작점-끝점 선에서 가장 멀리 벗어난 거리가 작으면 (약간 삐뚤한 선도 OK)
     if (gap > 20) {
-      const dx = ex - sx, dy = ey - sy;
-      const maxDev = pts.reduce((m, [x, y]) => Math.max(m, Math.abs(dy * (x - sx) - dx * (y - sy)) / gap), 0);
-      if (maxDev <= Math.max(9, gap * 0.1) && len < gap * 1.35) return { kind: "line", pts: [[sx, sy], [ex, ey]] };
+      const maxDev = Math.max(...pts.map((q) => segDist(q, first, end)));
+      if (maxDev <= Math.max(10, gap * 0.1) && len < gap * 1.4) return { kind: "line", pts: [first, end] };
     }
 
-    // 닫힌 모양 → 원 / 타원 (주성분으로 기울기까지 맞춤)
-    if (gap < diag * 0.3 && len > diag * 1.8) {
-      const n = pts.length;
-      const mx = pts.reduce((a, q) => a + q[0], 0) / n, my = pts.reduce((a, q) => a + q[1], 0) / n;
-      let sxx = 0, syy = 0, sxy = 0;
-      pts.forEach(([x, y]) => { sxx += (x - mx) ** 2; syy += (y - my) ** 2; sxy += (x - mx) * (y - my); });
-      const th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
-      const c = Math.cos(th), s = Math.sin(th);
-      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-      pts.forEach(([x, y]) => {
-        const u = (x - mx) * c + (y - my) * s, v = -(x - mx) * s + (y - my) * c;
-        u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
-      });
-      let a = (u1 - u0) / 2, b = (v1 - v0) / 2;
-      const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
-      const cx = mx + cu * c - cv * s, cy = my + cu * s + cv * c;
-      // 그린 점들이 타원 둘레에서 너무 벗어나면(8자 같은 낙서) 다듬지 않는다
-      const err = pts.reduce((acc, [x, y]) => {
-        const u = (x - cx) * c + (y - cy) * s, v = -(x - cx) * s + (y - cy) * c;
-        return acc + Math.abs(Math.hypot(u / a, v / b) - 1);
-      }, 0) / n;
-      if (err > 0.28) return null;
-      let rot = th;
-      if (Math.min(a, b) / Math.max(a, b) > 0.82) { a = b = (a + b) / 2; rot = 0; }
-      const per = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
-      const steps = Math.max(64, Math.round(per / 3));
-      const start = Math.atan2(-((sx - cx) * Math.sin(rot)) + (sy - cy) * Math.cos(rot), (sx - cx) * Math.cos(rot) + (sy - cy) * Math.sin(rot));
-      const out = [];
-      for (let i = 0; i <= steps; i++) {
-        const t = start + (i / steps) * Math.PI * 2;
-        const u = a * Math.cos(t), v = b * Math.sin(t);
-        out.push([cx + u * Math.cos(rot) - v * Math.sin(rot), cy + u * Math.sin(rot) + v * Math.cos(rot)]);
+    const eps = Math.max(8, diag * 0.06);
+    const cornerW = Math.max(10, diag * 0.07);
+    const closed = gap < diag * 0.3 && len > diag * 1.6;
+
+    if (closed) {
+      // 2) 별
+      const star = detectStar(pts);
+      if (star) return star;
+      // 3) 다각형 (변이 곧고 모서리가 뚜렷하면)
+      let V = rdp(pts, eps);
+      if (D(V[0], V[V.length - 1]) < diag * 0.3) V = V.slice(0, -1);
+      V = cleanVerts(V, true, diag * 0.08);
+      if (V.length >= 3 && V.length <= 8) {
+        const err = edgeError(pts, V, true);
+        if (err < 0.05 && allCorners(pts, V, true, cornerW)) return regularize(V);
       }
-      return { kind: a === b ? "circle" : "ellipse", pts: out };
+      // 4) 원 · 타원
+      const e = fitEllipse(pts);
+      if (e.err < 0.28) return { kind: "ellipse", pts: ellipsePoints(e, first) };
+      return null;
     }
+
+    // 5) 꺾은선 (ㄱ, ㄴ, V, 번개 모양 등): 꺾이는 곳이 뚜렷하고 사이가 곧으면
+    let V = cleanVerts(rdp(pts, eps), false, diag * 0.08);
+    if (V.length >= 3 && V.length <= 7 && edgeError(pts, V, false) < 0.05 && allCorners(pts, V, false, cornerW)) return { kind: "polyline", pts: V };
     return null;
   }
 
@@ -218,9 +413,29 @@
     a.s.p = densify(flat);
     a.s.even = true; // 일정한 굵기
     a.snapped = true;
+    a.shape = shape.kind;
     drawStroke(a.s, a.el, true);
+    a.el.dataset.shape = shape.kind;
     a.el.classList.add("snapped");
     setTimeout(() => a.el.classList.remove("snapped"), 300);
+  }
+
+  // 꾹 누르기 감지: 최근 HOLD_MS 동안 펜 끝이 작은 원(STILL_R) 안에 머물렀으면
+  function checkHold() {
+    const a = active;
+    if (!a || a.erase || a.snapped) return;
+    const now = performance.now();
+    if (now - a.tStart < HOLD_MS) return;
+    const p = a.s.p, ts = a.ts, n = ts.length;
+    if (n < 4) return;
+    const lx = p[p.length - 3], ly = p[p.length - 2];
+    for (let i = n - 1; i >= 0; i--) {
+      if (Math.hypot(p[i * 3] - lx, p[i * 3 + 1] - ly) > STILL_R) {
+        if (ts[i] > now - HOLD_MS) return; // 최근에 움직였음
+        break;
+      }
+    }
+    snapActive();
   }
 
   // ---------- 날짜별 데이터 ----------
@@ -327,7 +542,9 @@
                 p: [x, y, hasPressure ? +e.pressure.toFixed(2) : 0.5] };
     const el = drawStroke(s, null, false);
     svg.appendChild(el);
-    active = { id: e.pointerId, s, el, t0: Date.now(), target: e.target, anchor: [x, y] };
+    active = { id: e.pointerId, s, el, t0: Date.now(), target: e.target, tStart: performance.now(), ts: [performance.now()] };
+    clearInterval(holdTimer);
+    holdTimer = setInterval(checkHold, 80);
   }, true);
 
   canvas.addEventListener("pointermove", (e) => {
@@ -341,12 +558,7 @@
       const p = active.s.p;
       if (Math.abs(x - p[p.length - 3]) + Math.abs(y - p[p.length - 2]) < 0.8) continue;
       p.push(x, y, active.s.sim ? 0.5 : +(ev.pressure || 0.5).toFixed(2));
-      // 움직이는 동안은 꾹 누르기 타이머를 다시 건다
-      if (Math.hypot(x - active.anchor[0], y - active.anchor[1]) > 5) {
-        active.anchor = [x, y];
-        clearTimeout(holdTimer);
-        holdTimer = setTimeout(snapActive, HOLD_MS);
-      }
+      active.ts.push(performance.now());
     }
     if (!active.erase && !active.snapped) drawStroke(active.s, active.el, false);
   }, true);
@@ -362,7 +574,7 @@
   function endStroke(e) {
     if (!active || e.pointerId !== active.id) return;
     e.preventDefault();
-    clearTimeout(holdTimer);
+    clearInterval(holdTimer);
     lastUp = Date.now();
     const a = active;
     active = null;

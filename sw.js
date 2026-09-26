@@ -1,6 +1,6 @@
 // Splanner 오프라인 캐시
 // 앱 파일을 바꿔 배포할 때는 VERSION을 올리면 아이패드에 새 버전이 받아진다.
-const VERSION = "splanner-v6";
+const VERSION = "splanner-v7";
 const SHELL = [
   "./",
   "index.html",

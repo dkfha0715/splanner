@@ -278,6 +278,7 @@
         <label><input type="number" id="goalH" min="0" max="23" inputmode="numeric" /><span>시간</span></label>
         <label><input type="number" id="goalM" min="0" max="59" step="10" inputmode="numeric" /><span>분</span></label>
       </div>
+      <p class="dlg-sub app-version" id="appVersion"></p>
       <button type="button" class="ghost line install-line" id="installFromSettings">📲 앱으로 설치하기</button>
       <p class="dlg-sub">기록 백업 · 다른 기기로 옮길 때 사용 (손글씨 포함)</p>
       <div class="backup">
@@ -331,6 +332,14 @@
     // 오프라인에서도 열리도록 (배포된 https 사이트에서만. 내 컴퓨터에서 고칠 때는 캐시 없이)
     if ("serviceWorker" in navigator && location.protocol === "https:") {
       window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+      // 새 버전을 받으면 한 번 새로고침해서 바로 적용 (다시 열 필요 없이)
+      let reloaded = false;
+      const hadController = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadController || reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
     }
   </script>
 </body>

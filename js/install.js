@@ -106,3 +106,12 @@
   // 휴대폰 · 태블릿은 설치 창 이벤트가 없거나 늦을 수 있으니 직접 띄운다 (누르면 설치 창 또는 안내)
   if (!standalone && (isIOS || isAndroid || inApp)) setTimeout(showBar, 1200);
 })();
+
+// 설정 창에 현재 앱 버전 표시 (새 버전이 적용됐는지 확인용)
+document.querySelectorAll(".settings-btn").forEach((b) => b.addEventListener("click", async () => {
+  const el = document.getElementById("appVersion");
+  try {
+    const keys = (await caches.keys()).filter((k) => k.startsWith("splanner-")).sort();
+    el.textContent = keys.length ? `앱 버전: ${keys[keys.length - 1].replace("splanner-", "")}` : "앱 버전: 개발용";
+  } catch (e) { el.textContent = ""; }
+}));
