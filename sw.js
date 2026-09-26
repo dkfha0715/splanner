@@ -1,6 +1,6 @@
 // Splanner 오프라인 캐시
 // 앱 파일을 바꿔 배포할 때는 VERSION을 올리면 아이패드에 새 버전이 받아진다.
-const VERSION = "splanner-v2";
+const VERSION = "splanner-v3";
 const SHELL = [
   "./",
   "index.html",
@@ -17,7 +17,12 @@ const SHELL = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // 브라우저 보관본(HTTP 캐시)을 건너뛰고 서버에서 새로 받아 담는다
+  e.waitUntil(
+    caches.open(VERSION)
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
@@ -50,7 +55,7 @@ self.addEventListener("fetch", (e) => {
   // 앱 파일: 캐시를 먼저 보여주고, 뒤에서 새 버전을 받아 둔다
   e.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
-      const net = fetch(req).then((res) => {
+      const net = fetch(req, { cache: "no-cache" }).then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
         return res;
       }).catch(() => hit || caches.match("index.html"));
